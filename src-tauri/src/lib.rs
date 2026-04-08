@@ -703,7 +703,7 @@ pub fn run() {
             let skill_service = SkillService::new();
             app.manage(commands::skill::SkillServiceState(Arc::new(skill_service)));
 
-            // 初始化 CopilotAuthManager
+            // 初始化 CopilotAuthManager（向后兼容）
             {
                 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
                 use commands::CopilotAuthState;
@@ -712,7 +712,21 @@ pub fn run() {
                 let app_config_dir = crate::config::get_app_config_dir();
                 let copilot_auth_manager = CopilotAuthManager::new(app_config_dir);
                 app.manage(CopilotAuthState(Arc::new(RwLock::new(copilot_auth_manager))));
-                log::info!("✓ CopilotAuthManager initialized");
+                log::info!("✓ CopilotAuthManager initialized (legacy)");
+            }
+
+            // 初始化通用 OAuth 管理器（含 Copilot 集成）
+            {
+                use crate::proxy::providers::oauth::OAuthManager;
+                use crate::proxy::providers::copilot_auth::CopilotAuthManager;
+                use crate::commands::auth::OAuthAuthState;
+
+                let app_config_dir = crate::config::get_app_config_dir();
+                let copilot_auth = CopilotAuthManager::new(app_config_dir.clone());
+                let oauth_manager = OAuthManager::new_with_copilot(app_config_dir, copilot_auth);
+
+                app.manage(OAuthAuthState(Arc::new(oauth_manager)));
+                log::info!("✓ OAuthManager initialized");
             }
 
             // 初始化全局出站代理 HTTP 客户端

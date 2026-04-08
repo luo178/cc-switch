@@ -82,6 +82,7 @@ impl AuthInfo {
 /// 认证策略
 ///
 /// 不同供应商使用不同的认证方式
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthStrategy {
     /// Anthropic 认证方式
@@ -119,6 +120,33 @@ pub enum AuthStrategy {
     ///
     /// 使用动态获取的 Copilot Token（通过 GitHub OAuth 设备码流程获取）
     GitHubCopilot,
+
+    /// OpenAI OAuth 认证方式
+    ///
+    /// - Header: `Authorization: Bearer <access_token>`
+    ///
+    /// 通过 OpenAI OAuth 设备码流程获取
+    OpenAIOAuth,
+
+    /// 阿里巴巴通义千问 OAuth 认证方式
+    ///
+    /// - Header: `Authorization: Bearer <access_token>`
+    AlibabaQwenOAuth,
+
+    /// Moonshot AI (Kimi) OAuth 认证方式
+    ///
+    /// - Header: `Authorization: Bearer <access_token>`
+    MoonshotOAuth,
+
+    /// MiniMax OAuth 认证方式
+    ///
+    /// - Header: `Authorization: Bearer <access_token>`
+    MiniMaxOAuth,
+
+    /// VolcEngine Ark OAuth 认证方式
+    ///
+    /// - Header: `Authorization: Bearer <access_token>`
+    VolcEngineOAuth,
 }
 
 #[cfg(test)]
@@ -225,6 +253,7 @@ mod tests {
         assert_ne!(auth.strategy, AuthStrategy::Google);
     }
 
+    #[cfg(test)]
     #[test]
     fn test_all_strategies_are_distinct() {
         let strategies = [
@@ -234,6 +263,11 @@ mod tests {
             AuthStrategy::Google,
             AuthStrategy::GoogleOAuth,
             AuthStrategy::GitHubCopilot,
+            AuthStrategy::OpenAIOAuth,
+            AuthStrategy::AlibabaQwenOAuth,
+            AuthStrategy::MoonshotOAuth,
+            AuthStrategy::MiniMaxOAuth,
+            AuthStrategy::VolcEngineOAuth,
         ];
 
         for (i, s1) in strategies.iter().enumerate() {

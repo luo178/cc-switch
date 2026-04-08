@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-mod auth;
+pub mod auth;
 mod coding_plan;
 mod config;
 mod copilot;

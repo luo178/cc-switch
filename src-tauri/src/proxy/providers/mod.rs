@@ -10,14 +10,16 @@
 //! - `gemini`: Gemini (Google) 适配器
 //! - `models`: API 数据模型
 //! - `transform`: 格式转换
+//! - `oauth`: 通用 OAuth 认证框架
 
 mod adapter;
-mod auth;
+pub mod auth;
 mod claude;
 mod codex;
 pub mod copilot_auth;
 mod gemini;
 pub mod models;
+pub mod oauth;
 pub mod streaming;
 pub mod streaming_responses;
 pub mod transform;

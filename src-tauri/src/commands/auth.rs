@@ -1,27 +1,61 @@
 use tauri::State;
+use std::sync::Arc;
 
-use crate::commands::copilot::CopilotAuthState;
-use crate::proxy::providers::copilot_auth::{GitHubAccount, GitHubDeviceCodeResponse};
+use crate::proxy::providers::oauth::{
+    OAuthAccountInfo, OAuthAuthStatus, OAuthDeviceCodeResponse, OAuthError, OAuthManager, OAuthProviderId,
+};
 
-const AUTH_PROVIDER_GITHUB_COPILOT: &str = "github_copilot";
+/// OAuth 认证状态
+pub struct OAuthAuthState(pub Arc<OAuthManager>);
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ManagedAuthAccount {
     pub id: String,
     pub provider: String,
     pub login: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     pub authenticated_at: i64,
     pub is_default: bool,
+}
+
+impl From<&OAuthAccountInfo> for ManagedAuthAccount {
+    fn from(info: &OAuthAccountInfo) -> Self {
+        Self {
+            id: info.id.clone(),
+            provider: info.provider.clone(),
+            login: info.login.clone(),
+            email: info.email.clone(),
+            avatar_url: info.avatar_url.clone(),
+            authenticated_at: info.authenticated_at,
+            is_default: info.is_default,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ManagedAuthStatus {
     pub provider: String,
     pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub migration_error: Option<String>,
     pub accounts: Vec<ManagedAuthAccount>,
+}
+
+impl From<&OAuthAuthStatus> for ManagedAuthStatus {
+    fn from(status: &OAuthAuthStatus) -> Self {
+        Self {
+            provider: status.provider.as_str().to_string(),
+            authenticated: status.authenticated,
+            default_account_id: status.default_account_id.clone(),
+            migration_error: None,
+            accounts: status.accounts.iter().map(ManagedAuthAccount::from).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -34,125 +68,95 @@ pub struct ManagedAuthDeviceCodeResponse {
     pub interval: u64,
 }
 
-fn ensure_auth_provider(auth_provider: &str) -> Result<&str, String> {
-    match auth_provider {
-        AUTH_PROVIDER_GITHUB_COPILOT => Ok(AUTH_PROVIDER_GITHUB_COPILOT),
-        _ => Err(format!("Unsupported auth provider: {auth_provider}")),
+impl From<&OAuthDeviceCodeResponse> for ManagedAuthDeviceCodeResponse {
+    fn from(resp: &OAuthDeviceCodeResponse) -> Self {
+        Self {
+            provider: resp.provider.clone(),
+            device_code: resp.device_code.clone(),
+            user_code: resp.user_code.clone(),
+            verification_uri: resp.verification_uri.clone(),
+            expires_in: resp.expires_in,
+            interval: resp.interval,
+        }
     }
 }
 
-fn map_account(
-    provider: &str,
-    account: GitHubAccount,
-    default_account_id: Option<&str>,
-) -> ManagedAuthAccount {
-    ManagedAuthAccount {
-        is_default: default_account_id == Some(account.id.as_str()),
-        id: account.id,
-        provider: provider.to_string(),
-        login: account.login,
-        avatar_url: account.avatar_url,
-        authenticated_at: account.authenticated_at,
-    }
+/// 将提供商字符串转换为 OAuthProviderId
+fn parse_provider_id(provider: &str) -> Result<OAuthProviderId, String> {
+    provider.parse::<OAuthProviderId>().map_err(|e| e.to_string())
 }
 
-fn map_device_code_response(
-    provider: &str,
-    response: GitHubDeviceCodeResponse,
-) -> ManagedAuthDeviceCodeResponse {
-    ManagedAuthDeviceCodeResponse {
-        provider: provider.to_string(),
-        device_code: response.device_code,
-        user_code: response.user_code,
-        verification_uri: response.verification_uri,
-        expires_in: response.expires_in,
-        interval: response.interval,
+fn map_oauth_error(e: OAuthError) -> String {
+    match e {
+        OAuthError::AuthorizationPending => "authorization_pending".to_string(),
+        OAuthError::AccessDenied => "access_denied".to_string(),
+        OAuthError::ExpiredToken => "expired_token".to_string(),
+        OAuthError::NoSubscription => "no_subscription".to_string(),
+        _ => e.to_string(),
     }
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_start_login(
     auth_provider: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<ManagedAuthDeviceCodeResponse, String> {
-    let auth_provider = ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.read().await;
-    let response = auth_manager
-        .start_device_flow()
+    let provider_id = parse_provider_id(&auth_provider)?;
+    let resp = state
+        .0
+        .start_login(provider_id)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(map_device_code_response(auth_provider, response))
+        .map_err(map_oauth_error)?;
+    Ok(ManagedAuthDeviceCodeResponse::from(&resp))
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_poll_for_account(
     auth_provider: String,
     device_code: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<Option<ManagedAuthAccount>, String> {
-    let auth_provider = ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.write().await;
-    match auth_manager.poll_for_token(&device_code).await {
-        Ok(account) => {
-            let default_account_id = auth_manager.get_status().await.default_account_id;
-            Ok(account
-                .map(|account| map_account(auth_provider, account, default_account_id.as_deref())))
-        }
-        Err(crate::proxy::providers::copilot_auth::CopilotAuthError::AuthorizationPending) => {
-            Ok(None)
-        }
-        Err(e) => Err(e.to_string()),
-    }
+    let provider_id = parse_provider_id(&auth_provider)?;
+    let account = state
+        .0
+        .poll_for_account(provider_id, &device_code)
+        .await
+        .map_err(map_oauth_error)?;
+    Ok(account.map(|a| ManagedAuthAccount::from(&a)))
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_list_accounts(
     auth_provider: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<Vec<ManagedAuthAccount>, String> {
-    let auth_provider = ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.read().await;
-    let status = auth_manager.get_status().await;
-    let default_account_id = status.default_account_id.clone();
-    Ok(status
-        .accounts
-        .into_iter()
-        .map(|account| map_account(auth_provider, account, default_account_id.as_deref()))
-        .collect())
+    let provider_id = parse_provider_id(&auth_provider)?;
+
+    let accounts = state.0.list_accounts(provider_id).await;
+    Ok(accounts.iter().map(ManagedAuthAccount::from).collect())
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_get_status(
     auth_provider: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<ManagedAuthStatus, String> {
-    let auth_provider = ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.read().await;
-    let status = auth_manager.get_status().await;
-    let default_account_id = status.default_account_id.clone();
-    Ok(ManagedAuthStatus {
-        provider: auth_provider.to_string(),
-        authenticated: status.authenticated,
-        default_account_id: default_account_id.clone(),
-        migration_error: status.migration_error,
-        accounts: status
-            .accounts
-            .into_iter()
-            .map(|account| map_account(auth_provider, account, default_account_id.as_deref()))
-            .collect(),
-    })
+    let provider_id = parse_provider_id(&auth_provider)?;
+
+    let status = state.0.get_auth_status(provider_id).await;
+    Ok(ManagedAuthStatus::from(&status))
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_remove_account(
     auth_provider: String,
     account_id: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<(), String> {
-    ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.write().await;
-    auth_manager
-        .remove_account(&account_id)
+    let provider_id = parse_provider_id(&auth_provider)?;
+    state
+        .0
+        .remove_account(provider_id, &account_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -161,12 +165,12 @@ pub async fn auth_remove_account(
 pub async fn auth_set_default_account(
     auth_provider: String,
     account_id: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<(), String> {
-    ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.write().await;
-    auth_manager
-        .set_default_account(&account_id)
+    let provider_id = parse_provider_id(&auth_provider)?;
+    state
+        .0
+        .set_default_account(provider_id, &account_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -174,9 +178,34 @@ pub async fn auth_set_default_account(
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_logout(
     auth_provider: String,
-    state: State<'_, CopilotAuthState>,
+    state: State<'_, OAuthAuthState>,
 ) -> Result<(), String> {
-    ensure_auth_provider(&auth_provider)?;
-    let auth_manager = state.0.write().await;
-    auth_manager.clear_auth().await.map_err(|e| e.to_string())
+    let provider_id = parse_provider_id(&auth_provider)?;
+    state
+        .0
+        .clear_auth(provider_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 列出所有支持的 OAuth 提供商
+#[tauri::command(rename_all = "camelCase")]
+pub fn auth_list_providers() -> Vec<OAuthProviderInfo> {
+    OAuthProviderId::all()
+        .iter()
+        .map(|id| OAuthProviderInfo {
+            id: id.as_str().to_string(),
+            name: id.display_name().to_string(),
+            supports_device_code: id.supports_device_code(),
+            requires_token_exchange: id.requires_token_exchange(),
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OAuthProviderInfo {
+    pub id: String,
+    pub name: String,
+    pub supports_device_code: bool,
+    pub requires_token_exchange: bool,
 }
