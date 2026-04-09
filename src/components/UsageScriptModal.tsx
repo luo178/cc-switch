@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { Provider, UsageScript, UsageData } from "@/types";
-import { usageApi, settingsApi, type AppId } from "@/lib/api";
+import { usageApi, settingsApi, subscriptionApi, type AppId } from "@/lib/api";
 import { copilotGetUsage, copilotGetUsageForAccount } from "@/lib/api/copilot";
 import { useSettingsQuery } from "@/lib/query";
 import { resolveManagedAccountId } from "@/lib/authBinding";
@@ -371,7 +371,6 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
           config?.env?.ANTHROPIC_AUTH_TOKEN ??
           config?.env?.ANTHROPIC_API_KEY ??
           "";
-        const { subscriptionApi } = await import("@/lib/api/subscription");
         const quota = await subscriptionApi.getCodingPlanQuota(baseUrl, apiKey);
         if (quota.success && quota.tiers.length > 0) {
           const summary = quota.tiers

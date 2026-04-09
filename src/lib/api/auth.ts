@@ -140,12 +140,4 @@ export const authApi = {
   authRemoveAccount,
   authSetDefaultAccount,
   authLogout,
-  // 兼容旧版
-  authStartLogin: authStartLogin,
-  authPollForAccount: authPollForAccount,
-  authListAccounts: authListAccounts,
-  authGetStatus: authGetStatus,
-  authRemoveAccount: authRemoveAccount,
-  authSetDefaultAccount: authSetDefaultAccount,
-  authLogout: authLogout,
 };
