@@ -43,6 +43,7 @@ interface OAuthAuthSectionProps {
   providerConfig: OAuthProviderConfig;
 }
 
+// @ts-ignore - reserved for future use
 const DEFAULT_PROVIDER_CONFIGS: Record<OAuthProviderId, OAuthProviderConfig> = {
   github_copilot: {
     id: "github_copilot",

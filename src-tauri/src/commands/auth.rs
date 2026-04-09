@@ -209,3 +209,32 @@ pub struct OAuthProviderInfo {
     pub supports_device_code: bool,
     pub requires_token_exchange: bool,
 }
+
+/// 保存 OAuth Client ID
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_save_client_id(
+    provider_id: String,
+    client_id: String,
+) -> Result<(), String> {
+    crate::settings::set_oauth_client_id(&provider_id, client_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 移除 OAuth Client ID
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_remove_client_id(provider_id: String) -> Result<(), String> {
+    crate::settings::remove_oauth_client_id(&provider_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 获取所有配置的 Client ID（仅返回已配置的，不返回占位符）
+#[tauri::command(rename_all = "camelCase")]
+pub fn auth_list_client_ids() -> std::collections::HashMap<String, String> {
+    let mut result = std::collections::HashMap::new();
+    for id in OAuthProviderId::all() {
+        if let Some(client_id) = crate::settings::get_oauth_client_id(id.as_str()) {
+            result.insert(id.as_str().to_string(), client_id);
+        }
+    }
+    result
+}

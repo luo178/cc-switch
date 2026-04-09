@@ -124,6 +124,29 @@ export async function authLogout(
   });
 }
 
+/// 保存 OAuth Client ID
+export async function authSaveClientId(
+  providerId: string,
+  clientId: string,
+): Promise<void> {
+  return invoke("auth_save_client_id", {
+    providerId,
+    clientId,
+  });
+}
+
+/// 移除 OAuth Client ID
+export async function authRemoveClientId(providerId: string): Promise<void> {
+  return invoke("auth_remove_client_id", {
+    providerId,
+  });
+}
+
+/// 获取所有已配置的 Client ID
+export async function authListClientIds(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("auth_list_client_ids");
+}
+
 /// 兼容性别名
 export type ManagedAuthProvider = OAuthProviderId;
 export type ManagedAuthAccount = OAuthAccount;
@@ -140,4 +163,7 @@ export const authApi = {
   authRemoveAccount,
   authSetDefaultAccount,
   authLogout,
+  authSaveClientId,
+  authRemoveClientId,
+  authListClientIds,
 };

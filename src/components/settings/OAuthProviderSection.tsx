@@ -20,10 +20,14 @@ import {
   Plus,
   X,
   User,
+  AlertCircle,
+  Settings,
+  Info,
 } from "lucide-react";
 import { useOAuthAuth } from "@/components/providers/forms/hooks/useOAuthAuth";
 import { copyText } from "@/lib/clipboard";
-import type { OAuthAccount, OAuthProviderId } from "@/lib/api";
+import { authApi } from "@/lib/api/auth";
+import type { OAuthAccount, OAuthProviderId } from "@/lib/api/auth";
 
 interface OAuthProviderSectionProps {
   providerId: OAuthProviderId;
@@ -45,6 +49,26 @@ const PROVIDER_NAMES: Record<OAuthProviderId, string> = {
   volcengine_ark: "火山引擎 Ark",
 };
 
+// 每个 Provider 的环境变量名称
+const PROVIDER_ENV_VARS: Record<OAuthProviderId, string> = {
+  github_copilot: "CCSWITCH_GITHUB_CLIENT_ID",
+  openai: "CCSWITCH_OPENAI_CLIENT_ID",
+  google_gemini: "CCSWITCH_GOOGLE_CLIENT_ID",
+  alibaba_qwen: "CCSWITCH_ALIBABA_CLIENT_ID",
+  moonshot_kimi: "CCSWITCH_MOONSHOT_CLIENT_ID",
+  minimax: "CCSWITCH_MINIMAX_CLIENT_ID",
+  volcengine_ark: "CCSWITCH_VOLCENGINE_CLIENT_ID",
+};
+
+// 检测是否是配置相关的错误
+function isConfigError(error: string | null): boolean {
+  if (!error) return false;
+  return error.includes("missing client ID") ||
+         error.includes("not configured") ||
+         error.includes("Client ID") ||
+         error.includes("client ID");
+}
+
 /**
  * 通用 OAuth 提供商认证区块
  *
@@ -58,6 +82,43 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
 }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = React.useState(false);
+  const [configuredClientIds, setConfiguredClientIds] = React.useState<Record<string, string>>({});
+  const [isConfiguringClientId, setIsConfiguringClientId] = React.useState(false);
+  const [clientIdInput, setClientIdInput] = React.useState("");
+
+  // 加载已配置的 Client IDs
+  React.useEffect(() => {
+    authApi.authListClientIds().then(setConfiguredClientIds).catch(console.error);
+  }, []);
+
+  const currentClientId = configuredClientIds[providerId] || "";
+  const hasClientIdConfigured = !!currentClientId && !currentClientId.startsWith("YOUR_");
+
+  // 保存 Client ID
+  const handleSaveClientId = async () => {
+    try {
+      await authApi.authSaveClientId(providerId, clientIdInput.trim());
+      setConfiguredClientIds(prev => ({ ...prev, [providerId]: clientIdInput.trim() }));
+      setClientIdInput("");
+      setIsConfiguringClientId(false);
+    } catch (e) {
+      console.error("Failed to save client ID:", e);
+    }
+  };
+
+  // 移除 Client ID
+  const handleRemoveClientId = async () => {
+    try {
+      await authApi.authRemoveClientId(providerId);
+      setConfiguredClientIds(prev => {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      });
+    } catch (e) {
+      console.error("Failed to remove client ID:", e);
+    }
+  };
 
   const {
     accounts,
@@ -215,6 +276,91 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
         </div>
       )}
 
+      {/* Client ID 配置区域 */}
+      {pollingState === "idle" && (
+        <div className="space-y-2">
+          {!isConfiguringClientId ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">
+                  {hasClientIdConfigured
+                    ? `${t("oauth.clientIdConfigured", "Client ID")}: ${currentClientId.slice(0, 8)}...`
+                    : t("oauth.clientIdNotConfigured", "未配置 Client ID")}
+                </span>
+              </div>
+              <div className="flex gap-1">
+                {hasClientIdConfigured && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs text-muted-foreground hover:text-red-500"
+                    onClick={handleRemoveClientId}
+                  >
+                    <X className="h-3 w-3 mr-0.5" />
+                    {t("oauth.removeClientId", "移除")}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => {
+                    setClientIdInput(currentClientId);
+                    setIsConfiguringClientId(true);
+                  }}
+                >
+                  <Settings className="h-3 w-3 mr-1" />
+                  {hasClientIdConfigured ? t("oauth.changeClientId", "修改") : t("oauth.configureClientId", "配置")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">{providerName} Client ID</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => {
+                    setIsConfiguringClientId(false);
+                    setClientIdInput("");
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={clientIdInput}
+                  onChange={(e) => setClientIdInput(e.target.value)}
+                  placeholder={t("oauth.clientIdPlaceholder", "输入 Client ID")}
+                  className="flex-1 h-8 px-3 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveClientId}
+                  disabled={!clientIdInput.trim()}
+                >
+                  {t("common.save", "保存")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("oauth.clientIdHint", {
+                  defaultValue: `环境变量: ${PROVIDER_ENV_VARS[providerId]}`,
+                })}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 未认证状态 - 登录按钮 */}
       {!hasAnyAccount && pollingState === "idle" && (
         <Button
@@ -305,25 +451,79 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
       {/* 错误状态 */}
       {pollingState === "error" && error && (
         <div className="space-y-2">
-          <p className="text-sm text-red-500">{error}</p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              onClick={addAccount}
-              variant="outline"
-              size="sm"
-            >
-              {t("oauth.retry", "重试")}
-            </Button>
-            <Button
-              type="button"
-              onClick={cancelAuth}
-              variant="ghost"
-              size="sm"
-            >
-              {t("common.cancel", "取消")}
-            </Button>
-          </div>
+          {isConfigError(error) ? (
+            /* 配置错误 - 更友好的提示 */
+            <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                    {t("oauth.configRequired", "需要配置 Client ID")}
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    {t("oauth.configHint", {
+                      defaultValue: `请设置环境变量 ${PROVIDER_ENV_VARS[providerId]} 获取 OAuth Client ID`,
+                    })}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-2 py-1 rounded font-mono">
+                      {PROVIDER_ENV_VARS[providerId]}
+                    </code>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs"
+                      onClick={() => copyText(PROVIDER_ENV_VARS[providerId])}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="flex gap-1.5 mt-2">
+                    <Button
+                      type="button"
+                      onClick={addAccount}
+                      variant="outline"
+                      size="sm"
+                    >
+                      {t("oauth.retry", "重试")}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={cancelAuth}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      {t("common.cancel", "取消")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* 其他错误 */
+            <div className="space-y-2">
+              <p className="text-sm text-red-500">{error}</p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  onClick={addAccount}
+                  variant="outline"
+                  size="sm"
+                >
+                  {t("oauth.retry", "重试")}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={cancelAuth}
+                  variant="ghost"
+                  size="sm"
+                >
+                  {t("common.cancel", "取消")}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

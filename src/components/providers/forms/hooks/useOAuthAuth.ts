@@ -7,7 +7,7 @@ import type {
   OAuthAuthStatus,
   OAuthDeviceCodeResponse,
   OAuthProviderId,
-} from "@/lib/api";
+} from "@/lib/api/auth";
 
 type PollingState = "idle" | "polling" | "success" | "error";
 

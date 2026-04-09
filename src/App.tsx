@@ -1150,6 +1150,19 @@ function App() {
                       compact={isToolbarCompact}
                     />
 
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSettingsDefaultTab("auth");
+                        setCurrentView("settings");
+                      }}
+                      className="text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                      title={t("settings.authCenter.title", { defaultValue: "认证中心" })}
+                    >
+                      <KeyRound className="w-4 h-4" />
+                    </Button>
+
                     <div className="flex items-center gap-1 p-1 bg-muted rounded-xl">
                       <AnimatePresence mode="wait">
                         <motion.div

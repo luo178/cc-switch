@@ -1,4 +1,4 @@
-import { Github, ShieldCheck, Bot, Plus } from "lucide-react";
+import { Github, ShieldCheck, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { CopilotAuthSection } from "@/components/providers/forms/CopilotAuthSection";

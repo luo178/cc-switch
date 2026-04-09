@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { useCopilotAuth } from "./hooks/useCopilotAuth";
 import { copyText } from "@/lib/clipboard";
-import type { GitHubAccount } from "@/lib/api";
 
 interface CopilotAuthSectionProps {
   className?: string;
@@ -91,7 +90,7 @@ export const CopilotAuthSection: React.FC<CopilotAuthSectionProps> = ({
   };
 
   // 渲染账号头像
-  const renderAvatar = (account: GitHubAccount) => {
+  const renderAvatar = (account: { id: string; login: string; avatar_url?: string | null }) => {
     return <CopilotAccountAvatar account={account} />;
   };
 
@@ -344,9 +343,10 @@ export const CopilotAuthSection: React.FC<CopilotAuthSectionProps> = ({
   );
 };
 
-const CopilotAccountAvatar: React.FC<{ account: GitHubAccount }> = ({
-  account,
+const CopilotAccountAvatar = (props: {
+  account: { id: string; login: string; avatar_url?: string | null };
 }) => {
+  const { account } = props;
   const [failed, setFailed] = React.useState(false);
 
   if (!account.avatar_url || failed) {

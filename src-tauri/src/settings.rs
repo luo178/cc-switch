@@ -269,6 +269,14 @@ pub struct AppSettings {
     /// - Linux: "gnome-terminal" | "konsole" | "xfce4-terminal" | "alacritty" | "kitty" | "ghostty"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_terminal: Option<String>,
+
+    // ===== OAuth Client IDs =====
+    /// OAuth Client IDs for each provider
+    /// Key: OAuthProviderId as string (e.g., "github_copilot", "openai", "google_gemini", etc.)
+    /// Value: Client ID string
+    /// Priority: env var > settings > hardcoded placeholder
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub oauth_client_ids: std::collections::HashMap<String, String>,
 }
 
 fn default_show_in_tray() -> bool {
@@ -312,6 +320,7 @@ impl Default for AppSettings {
             backup_interval_hours: None,
             backup_retain_count: None,
             preferred_terminal: None,
+            oauth_client_ids: std::collections::HashMap::new(),
         }
     }
 }
@@ -681,6 +690,47 @@ pub fn get_preferred_terminal() -> Option<String> {
         })
         .preferred_terminal
         .clone()
+}
+
+// ===== OAuth Client ID 管理 =====
+
+/// 获取指定 Provider 的 OAuth Client ID
+///
+/// 优先级：环境变量 > 设置文件 > 硬编码占位符
+pub fn get_oauth_client_id(provider_id: &str) -> Option<String> {
+    // 1. 环境变量优先
+    let env_key = format!("CCSWITCH_{}_CLIENT_ID", provider_id.to_uppercase().replace("-", "_"));
+    if let Ok(val) = std::env::var(&env_key) {
+        if !val.is_empty() && !val.starts_with("YOUR_") {
+            return Some(val);
+        }
+    }
+
+    // 2. 设置文件
+    if let Some(settings) = settings_store().read().ok() {
+        if let Some(client_id) = settings.oauth_client_ids.get(provider_id) {
+            if !client_id.is_empty() && !client_id.starts_with("YOUR_") {
+                return Some(client_id.clone());
+            }
+        }
+    }
+
+    // 3. 回退到硬编码值（可能还是占位符）
+    None
+}
+
+/// 保存 OAuth Client ID
+pub fn set_oauth_client_id(provider_id: &str, client_id: String) -> Result<(), AppError> {
+    mutate_settings(|current| {
+        current.oauth_client_ids.insert(provider_id.to_string(), client_id);
+    })
+}
+
+/// 移除 OAuth Client ID
+pub fn remove_oauth_client_id(provider_id: &str) -> Result<(), AppError> {
+    mutate_settings(|current| {
+        current.oauth_client_ids.remove(provider_id);
+    })
 }
 
 // ===== WebDAV 同步设置管理函数 =====
