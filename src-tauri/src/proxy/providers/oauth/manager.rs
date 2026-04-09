@@ -53,6 +53,7 @@ use crate::proxy::providers::oauth::volcengine::{
     VOLCENGINE_TOKEN_URL,
     VOLCENGINE_USER_INFO_URL,
 };
+use crate::settings;
 
 /// OAuth 账号公开信息
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -269,25 +270,53 @@ impl OAuthManager {
 
     // ==================== OAuth 设备码流程 ====================
 
+    /// 从环境变量获取 Client ID（返回 Some 如果非空且非占位符）
+    fn get_client_id_from_env(env_var: &str) -> Option<String> {
+        let val = std::env::var(env_var).unwrap_or_default();
+        if val.is_empty() || val.starts_with("YOUR_") {
+            None
+        } else {
+            Some(val)
+        }
+    }
+
     /// 获取提供商的 OAuth 配置
     fn get_provider_config(&self, provider_id: OAuthProviderId) -> ProviderOAuthConfig {
+        // 优先级：环境变量 > settings > 硬编码占位符
+        let fallback = |hardcoded: &str| -> String {
+            // 先检查环境变量
+            let env_key = format!(
+                "CCSWITCH_{}_CLIENT_ID",
+                provider_id.as_str().to_uppercase().replace("-", "_")
+            );
+            if let Some(val) = Self::get_client_id_from_env(&env_key) {
+                return val;
+            }
+            // 再检查 settings
+            if let Some(val) = settings::get_oauth_client_id(provider_id.as_str()) {
+                return val;
+            }
+            // 最后用硬编码
+            hardcoded.to_string()
+        };
+
         match provider_id {
             OAuthProviderId::GitHubCopilot => ProviderOAuthConfig {
-                client_id: GITHUB_CLIENT_ID.to_string(),
+                client_id: fallback(GITHUB_CLIENT_ID),
                 device_code_url: GITHUB_DEVICE_CODE_URL.to_string(),
                 token_url: GITHUB_TOKEN_URL.to_string(),
                 user_info_url: Some(GITHUB_USER_URL.to_string()),
                 scopes: vec!["read:user".to_string()],
             },
             OAuthProviderId::OpenAI => ProviderOAuthConfig {
-                client_id: OPENAI_CLIENT_ID.to_string(),
+                client_id: fallback(OPENAI_CLIENT_ID),
                 device_code_url: OPENAI_DEVICE_CODE_URL.to_string(),
                 token_url: OPENAI_TOKEN_URL.to_string(),
                 user_info_url: Some(OPENAI_USER_INFO_URL.to_string()),
                 scopes: vec!["openid".to_string(), "model.read".to_string(), "offline".to_string()],
             },
             OAuthProviderId::GoogleGemini => ProviderOAuthConfig {
-                client_id: GOOGLE_CLIENT_ID.to_string(),
+                client_id: fallback(GOOGLE_CLIENT_ID),
                 device_code_url: GOOGLE_DEVICE_CODE_URL.to_string(),
                 token_url: GOOGLE_TOKEN_URL.to_string(),
                 user_info_url: Some(GOOGLE_USER_INFO_URL.to_string()),
@@ -299,28 +328,28 @@ impl OAuthManager {
                 ],
             },
             OAuthProviderId::AlibabaQwen => ProviderOAuthConfig {
-                client_id: ALIBABA_QWEN_CLIENT_ID.to_string(),
+                client_id: fallback(ALIBABA_QWEN_CLIENT_ID),
                 device_code_url: ALIBABA_QWEN_DEVICE_CODE_URL.to_string(),
                 token_url: ALIBABA_QWEN_TOKEN_URL.to_string(),
                 user_info_url: Some(ALIBABA_QWEN_USER_INFO_URL.to_string()),
                 scopes: vec!["openapi".to_string()],
             },
             OAuthProviderId::MoonshotKimi => ProviderOAuthConfig {
-                client_id: MOONSHOT_CLIENT_ID.to_string(),
+                client_id: fallback(MOONSHOT_CLIENT_ID),
                 device_code_url: MOONSHOT_DEVICE_CODE_URL.to_string(),
                 token_url: MOONSHOT_TOKEN_URL.to_string(),
                 user_info_url: Some(MOONSHOT_USER_INFO_URL.to_string()),
                 scopes: vec!["user.info".to_string(), "chatplt.compact".to_string()],
             },
             OAuthProviderId::MiniMax => ProviderOAuthConfig {
-                client_id: MINIMAX_CLIENT_ID.to_string(),
+                client_id: fallback(MINIMAX_CLIENT_ID),
                 device_code_url: MINIMAX_DEVICE_CODE_URL.to_string(),
                 token_url: MINIMAX_TOKEN_URL.to_string(),
                 user_info_url: Some(MINIMAX_USER_INFO_URL.to_string()),
                 scopes: vec!["user.base".to_string(), "chat.default".to_string()],
             },
             OAuthProviderId::VolcEngineArk => ProviderOAuthConfig {
-                client_id: VOLCENGINE_CLIENT_ID.to_string(),
+                client_id: fallback(VOLCENGINE_CLIENT_ID),
                 device_code_url: VOLCENGINE_DEVICE_CODE_URL.to_string(),
                 token_url: VOLCENGINE_TOKEN_URL.to_string(),
                 user_info_url: Some(VOLCENGINE_USER_INFO_URL.to_string()),
@@ -349,9 +378,9 @@ impl OAuthManager {
         }
 
         let config = self.get_provider_config(provider_id);
-        if config.client_id == "YOUR_CLIENT_ID" || config.client_id.is_empty() {
+        if config.client_id.is_empty() || config.client_id.starts_with("YOUR_") || config.client_id == "YOUR_CLIENT_ID" {
             return Err(OAuthError::UnsupportedProvider(format!(
-                "OAuth not configured for {}: missing client ID", provider_id.display_name()
+                "OAuth not configured for {}: missing client ID. Please set the client ID via the UI settings or environment variable.", provider_id.display_name()
             )));
         }
 
@@ -359,6 +388,7 @@ impl OAuthManager {
         let response = self.http_client
             .post(&config.device_code_url)
             .header("Accept", "application/json")
+            .header("Content-Type", "application/x-www-form-urlencoded")
             .form(&[
                 ("client_id", config.client_id.as_str()),
                 ("scope", scopes.as_str()),
@@ -369,8 +399,14 @@ impl OAuthManager {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
+            // Detect Cloudflare challenge
+            if text.contains("Just a moment") || text.contains("cf-challenge") {
+                return Err(OAuthError::NetworkError(format!(
+                    "Device code request failed: {} - Blocked by Cloudflare (bot protection). This may indicate an incorrect endpoint URL for {}.", status, provider_id.display_name()
+                )));
+            }
             return Err(OAuthError::NetworkError(format!(
-                "Device code request failed: {status} - {text}"
+                "Device code request failed: {} - {}", status, &text[..text.len().min(200)]
             )));
         }
 
@@ -429,6 +465,12 @@ impl OAuthManager {
         // 先检查状态码判断是否成功
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
+            // Detect Cloudflare challenge
+            if text.contains("Just a moment") || text.contains("cf-challenge") {
+                return Err(OAuthError::NetworkError(format!(
+                    "Token request failed: {} - Blocked by Cloudflare (bot protection).", status
+                )));
+            }
             // OAuth 错误可能在任何状态码中
             if text.contains("\"error\"") {
                 #[derive(serde::Deserialize)]
@@ -450,7 +492,7 @@ impl OAuthManager {
                 }
             }
             return Err(OAuthError::NetworkError(format!(
-                "Token request failed: {}", status
+                "Token request failed: {} - {}", status, &text[..text.len().min(200)]
             )));
         }
 

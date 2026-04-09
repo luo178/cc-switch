@@ -27,4 +27,8 @@ export type {
   ManagedAuthAccount,
   ManagedAuthStatus,
   ManagedAuthDeviceCodeResponse,
+  OAuthProviderId,
+  OAuthAccount,
+  OAuthAuthStatus,
+  OAuthDeviceCodeResponse,
 } from "./auth";
