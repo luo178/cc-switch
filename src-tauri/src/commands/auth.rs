@@ -1,8 +1,9 @@
 use tauri::State;
 use std::sync::Arc;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::proxy::providers::oauth::{
-    OAuthAccountInfo, OAuthAuthStatus, OAuthDeviceCodeResponse, OAuthError, OAuthManager, OAuthProviderId,
+    BrowserFlowResponse, OAuthAccountInfo, OAuthAuthStatus, OAuthDeviceCodeResponse, OAuthError, OAuthManager, OAuthProviderId,
 };
 
 /// OAuth 认证状态
@@ -108,6 +109,98 @@ pub async fn auth_start_login(
         .await
         .map_err(map_oauth_error)?;
     Ok(ManagedAuthDeviceCodeResponse::from(&resp))
+}
+
+/// OAuth 浏览器流程响应（自动打开浏览器）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ManagedBrowserFlowResponse {
+    pub provider: String,
+    pub authorization_url: String,
+    pub redirect_uri: String,
+    pub state: String,
+    pub code_verifier: String,
+    pub auto_open_browser: bool,
+}
+
+impl From<&BrowserFlowResponse> for ManagedBrowserFlowResponse {
+    fn from(resp: &BrowserFlowResponse) -> Self {
+        Self {
+            provider: resp.provider.clone(),
+            authorization_url: resp.authorization_url.clone(),
+            redirect_uri: resp.redirect_uri.clone(),
+            state: resp.state.clone(),
+            code_verifier: resp.code_verifier.clone(),
+            auto_open_browser: resp.auto_open_browser,
+        }
+    }
+}
+
+/// 启动 OAuth 浏览器流程（自动打开浏览器）
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_start_browser_flow(
+    auth_provider: String,
+    auto_open_browser: Option<bool>,
+    state: State<'_, OAuthAuthState>,
+    app: tauri::AppHandle,
+) -> Result<ManagedBrowserFlowResponse, String> {
+    let provider_id = parse_provider_id(&auth_provider)?;
+    let resp = state
+        .0
+        .start_browser_flow(provider_id)
+        .await?;
+
+    // 根据参数决定是否自动打开浏览器
+    let should_open = auto_open_browser.unwrap_or(true);
+    if should_open {
+        if let Err(e) = app.opener().open_url(&resp.authorization_url, None::<String>) {
+            log::warn!("[auth_start_browser_flow] Failed to auto-open browser: {}", e);
+        }
+    }
+
+    Ok(ManagedBrowserFlowResponse::from(&resp))
+}
+
+/// 完成 OAuth 浏览器流程（等待回调）
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_complete_browser_flow(
+    auth_provider: String,
+    state: State<'_, OAuthAuthState>,
+) -> Result<Option<ManagedAuthAccount>, String> {
+    let provider_id = parse_provider_id(&auth_provider)?;
+    let account = state
+        .0
+        .complete_browser_flow(provider_id)
+        .await
+        .map_err(map_oauth_error)?;
+    Ok(account.map(|a| ManagedAuthAccount::from(&a)))
+}
+
+/// Headless 模式：使用回调 URL 完成认证
+/// 用户手动在浏览器中完成 OAuth 授权后，将回调 URL 粘贴到这里
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_complete_with_callback_url(
+    auth_provider: String,
+    callback_url: String,
+    state: State<'_, OAuthAuthState>,
+) -> Result<Option<ManagedAuthAccount>, String> {
+    let provider_id = parse_provider_id(&auth_provider)?;
+    let account = state
+        .0
+        .complete_browser_flow_with_url(provider_id, &callback_url)
+        .await
+        .map_err(map_oauth_error)?;
+    Ok(account.map(|a| ManagedAuthAccount::from(&a)))
+}
+
+/// 取消 OAuth 浏览器流程
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_cancel_browser_flow(
+    auth_provider: String,
+    state: State<'_, OAuthAuthState>,
+) -> Result<(), String> {
+    let provider_id = parse_provider_id(&auth_provider)?;
+    state.0.cancel_browser_flow(provider_id).await;
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]

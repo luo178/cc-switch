@@ -20,6 +20,12 @@ const OAUTH_PROVIDERS: { id: OAuthProviderId; name: string; icon: React.ReactNod
     description: "OpenAI API OAuth 认证",
   },
   {
+    id: "anthropic",
+    name: "Anthropic (Claude)",
+    icon: <Bot className="h-5 w-5" />,
+    description: "Anthropic Claude API OAuth 认证",
+  },
+  {
     id: "google_gemini",
     name: "Google Gemini",
     icon: <Bot className="h-5 w-5" />,

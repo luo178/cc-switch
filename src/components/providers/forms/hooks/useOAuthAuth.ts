@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { authApi, settingsApi } from "@/lib/api";
-import { copyText } from "@/lib/clipboard";
+import { authApi } from "@/lib/api";
 import type {
   OAuthAccount,
   OAuthAuthStatus,
@@ -39,6 +38,8 @@ export interface UseOAuthAuthReturn {
   pollingState: PollingState;
   /** 设备码响应 */
   deviceCode: OAuthDeviceCodeResponse | null;
+  /** 浏览器流程授权 URL */
+  authorizationUrl: string | null;
   /** 错误信息 */
   error: string | null;
   /** 是否正在轮询 */
@@ -63,15 +64,22 @@ export interface UseOAuthAuthReturn {
   setDefaultAccount: (accountId: string) => void;
   /** 刷新状态 */
   refetchStatus: () => void;
+  /** Headless 模式：使用回调 URL 完成认证 */
+  completeWithCallbackUrl: (callbackUrl: string) => void;
+  /** 浏览器模式：启动并自动打开浏览器 */
+  startAuthBrowser: () => void;
+  /** Headless 模式：启动但不打开浏览器 */
+  startAuthHeadless: () => void;
 }
 
 export function useOAuthAuth(options: UseOAuthAuthOptions): UseOAuthAuthReturn {
-  const { provider, pollingIntervalBuffer = 3, minPollingInterval = 8 } = options;
+  const { provider } = options;
   const queryClient = useQueryClient();
   const queryKey = ["oauth-auth-status", provider];
 
   const [pollingState, setPollingState] = useState<PollingState>("idle");
   const [deviceCode, setDeviceCode] = useState<OAuthDeviceCodeResponse | null>(null);
+  const [authorizationUrl, setAuthorizationUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -104,74 +112,37 @@ export function useOAuthAuth(options: UseOAuthAuthOptions): UseOAuthAuthReturn {
     };
   }, [stopPolling]);
 
-  const startLoginMutation = useMutation({
-    mutationFn: () => authApi.authStartLogin(provider),
+  // 浏览器流程 mutation - 保存授权 URL 用于显示
+  const startBrowserFlowMutation = useMutation({
+    mutationFn: (autoOpenBrowser: boolean) => authApi.authStartBrowserFlow(provider, autoOpenBrowser),
     onSuccess: async (response) => {
-      setDeviceCode(response);
+      setAuthorizationUrl(response.authorization_url);
       setPollingState("polling");
       setError(null);
-
-      // 复制用户码
-      try {
-        await copyText(response.user_code);
-      } catch (e) {
-        console.debug("[OAuthAuth] Failed to copy user code:", e);
-      }
-
-      // 打开验证 URL
-      try {
-        await settingsApi.openExternal(response.verification_uri);
-      } catch (e) {
-        console.debug("[OAuthAuth] Failed to open browser:", e);
-      }
-
-      // 计算轮询间隔
-      const interval = Math.max((response.interval || 5) + pollingIntervalBuffer, minPollingInterval) * 1000;
-      const expiresAt = Date.now() + response.expires_in * 1000;
-
-      const pollOnce = async () => {
-        if (Date.now() > expiresAt) {
-          stopPolling();
-          setPollingState("error");
-          setError("Device code expired. Please try again.");
-          return;
-        }
-
-        try {
-          const newAccount = await authApi.authPollForAccount(provider, response.device_code);
-          if (newAccount) {
-            stopPolling();
-            setPollingState("success");
-            await refetchStatus();
-            await queryClient.invalidateQueries({ queryKey });
-            setPollingState("idle");
-            setDeviceCode(null);
-          }
-        } catch (e) {
-          const errorMessage = e instanceof Error ? e.message : String(e);
-          // authorization_pending 和 slow_down 是正常的轮询状态，不显示错误
-          if (
-            !errorMessage.includes("authorization_pending") &&
-            !errorMessage.includes("slow_down")
-          ) {
-            stopPolling();
-            setPollingState("error");
-            setError(errorMessage);
-          }
-        }
-      };
-
-      void pollOnce();
-      pollingIntervalRef.current = setInterval(pollOnce, interval);
-      pollingTimeoutRef.current = setTimeout(() => {
-        stopPolling();
-        setPollingState("error");
-        setError("Device code expired. Please try again.");
-      }, response.expires_in * 1000);
     },
     onError: (e) => {
       setPollingState("error");
       setError(e instanceof Error ? e.message : String(e));
+    },
+  });
+
+  // Headless 模式：使用回调 URL 完成认证
+  const completeWithCallbackUrlMutation = useMutation({
+    mutationFn: (callbackUrl: string) => authApi.authCompleteWithCallbackUrl(provider, callbackUrl),
+    onSuccess: async (account) => {
+      if (account) {
+        setPollingState("success");
+        await refetchStatus();
+        await queryClient.invalidateQueries({ queryKey });
+        setPollingState("idle");
+        setDeviceCode(null);
+        setAuthorizationUrl(null);
+      }
+    },
+    onError: (e) => {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      setPollingState("error");
+      setError(errorMessage);
     },
   });
 
@@ -224,17 +195,33 @@ export function useOAuthAuth(options: UseOAuthAuthOptions): UseOAuthAuthReturn {
   });
 
   const startAuth = useCallback(() => {
+    // 默认启动浏览器模式（兼容旧代码）
+    startBrowserFlowMutation.mutate(true);
+  }, []);
+
+  const startAuthBrowser = useCallback(() => {
     setPollingState("idle");
     setDeviceCode(null);
     setError(null);
     stopPolling();
-    startLoginMutation.mutate();
-  }, [startLoginMutation, stopPolling]);
+    // 浏览器模式 - 自动打开浏览器
+    startBrowserFlowMutation.mutate(true);
+  }, [stopPolling]);
+
+  const startAuthHeadless = useCallback(() => {
+    setPollingState("idle");
+    setDeviceCode(null);
+    setError(null);
+    stopPolling();
+    // Headless 模式 - 不自动打开浏览器
+    startBrowserFlowMutation.mutate(false);
+  }, [stopPolling]);
 
   const cancelAuth = useCallback(() => {
     stopPolling();
     setPollingState("idle");
     setDeviceCode(null);
+    setAuthorizationUrl(null);
     setError(null);
   }, [stopPolling]);
 
@@ -268,9 +255,10 @@ export function useOAuthAuth(options: UseOAuthAuthOptions): UseOAuthAuthReturn {
     migrationError: authStatus?.migration_error ?? null,
     pollingState,
     deviceCode,
+    authorizationUrl,
     error,
     isPolling: pollingState === "polling",
-    isAddingAccount: startLoginMutation.isPending || pollingState === "polling",
+    isAddingAccount: startBrowserFlowMutation.isPending || pollingState === "polling",
     isRemovingAccount: removeAccountMutation.isPending,
     isSettingDefaultAccount: setDefaultAccountMutation.isPending,
     startAuth,
@@ -280,5 +268,8 @@ export function useOAuthAuth(options: UseOAuthAuthOptions): UseOAuthAuthReturn {
     removeAccount,
     setDefaultAccount,
     refetchStatus,
+    completeWithCallbackUrl: (callbackUrl: string) => completeWithCallbackUrlMutation.mutate(callbackUrl),
+    startAuthBrowser,
+    startAuthHeadless,
   };
 }

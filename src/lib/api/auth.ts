@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type OAuthProviderId =
   | "github_copilot"
   | "openai"
+  | "anthropic"
   | "google_gemini"
   | "alibaba_qwen"
   | "moonshot_kimi"
@@ -48,6 +49,16 @@ export interface OAuthDeviceCodeResponse {
   interval: number;
 }
 
+/// OAuth 浏览器流程响应
+export interface OAuthBrowserFlowResponse {
+  provider: OAuthProviderId;
+  authorization_url: string;
+  redirect_uri: string;
+  state: string;
+  code_verifier: string;
+  auto_open_browser: boolean;
+}
+
 // ==================== API 函数 ====================
 
 /// 列出所有支持的 OAuth 提供商
@@ -55,11 +66,51 @@ export async function authListProviders(): Promise<OAuthProviderInfo[]> {
   return invoke<OAuthProviderInfo[]>("auth_list_providers");
 }
 
-/// 启动 OAuth 登录流程
+/// 启动 OAuth 登录流程（设备码方式）
 export async function authStartLogin(
   authProvider: OAuthProviderId,
 ): Promise<OAuthDeviceCodeResponse> {
   return invoke<OAuthDeviceCodeResponse>("auth_start_login", {
+    authProvider,
+  });
+}
+
+/// 启动 OAuth 浏览器流程（自动打开浏览器）
+export async function authStartBrowserFlow(
+  authProvider: OAuthProviderId,
+  autoOpenBrowser: boolean = true,
+): Promise<OAuthBrowserFlowResponse> {
+  return invoke<OAuthBrowserFlowResponse>("auth_start_browser_flow", {
+    authProvider,
+    autoOpenBrowser,
+  });
+}
+
+/// 完成 OAuth 浏览器流程（等待回调）
+export async function authCompleteBrowserFlow(
+  authProvider: OAuthProviderId,
+): Promise<OAuthAccount | null> {
+  return invoke<OAuthAccount | null>("auth_complete_browser_flow", {
+    authProvider,
+  });
+}
+
+/// 完成 OAuth 浏览器流程（Headless 模式 - 用户粘贴回调 URL）
+export async function authCompleteWithCallbackUrl(
+  authProvider: OAuthProviderId,
+  callbackUrl: string,
+): Promise<OAuthAccount | null> {
+  return invoke<OAuthAccount | null>("auth_complete_with_callback_url", {
+    authProvider,
+    callbackUrl,
+  });
+}
+
+/// 取消 OAuth 浏览器流程
+export async function authCancelBrowserFlow(
+  authProvider: OAuthProviderId,
+): Promise<void> {
+  return invoke<void>("auth_cancel_browser_flow", {
     authProvider,
   });
 }

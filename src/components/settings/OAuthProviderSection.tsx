@@ -42,6 +42,7 @@ interface OAuthProviderSectionProps {
 const PROVIDER_NAMES: Record<OAuthProviderId, string> = {
   github_copilot: "GitHub",
   openai: "OpenAI",
+  anthropic: "Anthropic (Claude)",
   google_gemini: "Google Gemini",
   alibaba_qwen: "通义千问",
   moonshot_kimi: "Moonshot Kimi",
@@ -53,6 +54,7 @@ const PROVIDER_NAMES: Record<OAuthProviderId, string> = {
 const PROVIDER_ENV_VARS: Record<OAuthProviderId, string> = {
   github_copilot: "CCSWITCH_GITHUB_CLIENT_ID",
   openai: "CCSWITCH_OPENAI_CLIENT_ID",
+  anthropic: "CCSWITCH_ANTHROPIC_CLIENT_ID",
   google_gemini: "CCSWITCH_GOOGLE_CLIENT_ID",
   alibaba_qwen: "CCSWITCH_ALIBABA_CLIENT_ID",
   moonshot_kimi: "CCSWITCH_MOONSHOT_CLIENT_ID",
@@ -85,6 +87,8 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
   const [configuredClientIds, setConfiguredClientIds] = React.useState<Record<string, string>>({});
   const [isConfiguringClientId, setIsConfiguringClientId] = React.useState(false);
   const [clientIdInput, setClientIdInput] = React.useState("");
+  const [callbackUrlInput, setCallbackUrlInput] = React.useState("");
+  const [authMode, setAuthMode] = React.useState<"idle" | "select" | "browser" | "headless">("idle");
 
   // 加载已配置的 Client IDs
   React.useEffect(() => {
@@ -126,6 +130,7 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
     hasAnyAccount,
     pollingState,
     deviceCode,
+    authorizationUrl,
     error,
     isPolling,
     isAddingAccount,
@@ -136,6 +141,9 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
     setDefaultAccount,
     cancelAuth,
     logout,
+    completeWithCallbackUrl,
+    startAuthBrowser,
+    startAuthHeadless,
   } = useOAuthAuth({ provider: providerId });
 
   const providerName = PROVIDER_NAMES[providerId] || providerId;
@@ -161,6 +169,16 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
     removeAccount(accountId);
     if (selectedAccountId === accountId) {
       onAccountSelect?.(null);
+    }
+  };
+
+  // 处理模式选择
+  const startAuthMode = (mode: "browser" | "headless") => {
+    setAuthMode(mode);
+    if (mode === "browser") {
+      startAuthBrowser();
+    } else {
+      startAuthHeadless();
     }
   };
 
@@ -361,34 +379,202 @@ export const OAuthProviderSection: React.FC<OAuthProviderSectionProps> = ({
         </div>
       )}
 
-      {/* 未认证状态 - 登录按钮 */}
-      {!hasAnyAccount && pollingState === "idle" && (
-        <Button
-          type="button"
-          onClick={addAccount}
-          className="w-full"
-          variant="outline"
-        >
-          <Bot className="mr-2 h-4 w-4" />
-          {t("oauth.login", { name: providerName, defaultValue: `使用 ${providerName} 登录` })}
-        </Button>
+      {/* 模式选择对话框 */}
+      {pollingState === "idle" && (
+        <div className="space-y-2">
+          {/* 未认证状态 */}
+          {!hasAnyAccount && (
+            <Button
+              type="button"
+              onClick={() => setAuthMode("select")}
+              className="w-full"
+              variant="outline"
+            >
+              <Bot className="mr-2 h-4 w-4" />
+              {t("oauth.login", { name: providerName, defaultValue: `使用 ${providerName} 登录` })}
+            </Button>
+          )}
+          {/* 已有账号 - 添加更多 */}
+          {hasAnyAccount && (
+            <Button
+              type="button"
+              onClick={() => setAuthMode("select")}
+              className="w-full"
+              variant="outline"
+              disabled={isAddingAccount}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {t("oauth.addAnotherAccount", "添加其他账号")}
+            </Button>
+          )}
+          {/* 模式选择下拉 */}
+          {authMode === "select" && (
+            <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {t("oauth.selectMode", "选择认证方式：")}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => startAuthMode("browser")}
+                  className="flex-1"
+                  size="sm"
+                >
+                  <ExternalLink className="mr-1 h-3 w-3" />
+                  {t("oauth.browserMode", "浏览器模式")}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => startAuthMode("headless")}
+                  className="flex-1"
+                  size="sm"
+                  variant="outline"
+                >
+                  <Copy className="mr-1 h-3 w-3" />
+                  {t("oauth.headlessMode", "Headless 模式")}
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs"
+                onClick={() => setAuthMode("idle")}
+              >
+                {t("common.cancel", "取消")}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* 已有账号 - 添加更多账号按钮 */}
-      {hasAnyAccount && pollingState === "idle" && (
-        <Button
-          type="button"
-          onClick={addAccount}
-          className="w-full"
-          variant="outline"
-          disabled={isAddingAccount}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {t("oauth.addAnotherAccount", "添加其他账号")}
-        </Button>
+      {/* 浏览器模式：等待用户授权 */}
+      {authMode === "browser" && isPolling && authorizationUrl && !deviceCode && (
+        <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/50">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("oauth.browserWaiting", "浏览器已打开，请在浏览器中完成授权")}
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground">
+              {t("oauth.browserWaitingHint", "授权完成后此页面将自动更新")}
+            </p>
+          </div>
+          <div className="flex justify-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(authorizationUrl, "_blank")}
+            >
+              <ExternalLink className="h-3 w-3 mr-1" />
+              {t("oauth.openAgain", "重新打开链接")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                cancelAuth();
+                setAuthMode("idle");
+              }}
+            >
+              {t("common.cancel", "取消")}
+            </Button>
+          </div>
+        </div>
       )}
 
-      {/* 轮询中状态 */}
+      {/* Headless 模式：显示授权 URL 并允许用户输入回调 URL */}
+      {authMode === "headless" && isPolling && authorizationUrl && !deviceCode && (
+        <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/50">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("oauth.headlessWaiting", "等待授权中（Headless 模式）")}
+          </div>
+
+          {/* 授权链接 */}
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground mb-2">
+              {t("oauth.headlessInstructions", "请在浏览器中打开以下链接完成授权：")}
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <code className="text-sm bg-background px-3 py-2 rounded border break-all font-mono">
+                {authorizationUrl.length > 50 ? authorizationUrl.slice(0, 50) + "..." : authorizationUrl}
+              </code>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => copyText(authorizationUrl)}
+                title={t("oauth.copyUrl", "复制链接")}
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="mt-2 text-blue-500"
+              onClick={() => window.open(authorizationUrl, "_blank")}
+            >
+              <ExternalLink className="h-3 w-3 mr-1" />
+              {t("oauth.openInBrowser", "在浏览器中打开")}
+            </Button>
+          </div>
+
+          {/* 回调 URL 输入 */}
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground text-center">
+              {t("oauth.pasteCallbackUrl", "授权完成后，将浏览器地址栏的 URL 粘贴到这里：")}
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={callbackUrlInput}
+                onChange={(e) => setCallbackUrlInput(e.target.value)}
+                placeholder="http://localhost:1455/auth/callback?..."
+                className="flex-1 h-8 px-3 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono"
+              />
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  if (callbackUrlInput.trim()) {
+                    completeWithCallbackUrl(callbackUrlInput.trim());
+                  }
+                }}
+                disabled={!callbackUrlInput.trim()}
+              >
+                {t("oauth.confirm", "确认")}
+              </Button>
+            </div>
+          </div>
+
+          {/* 取消按钮 */}
+          <div className="text-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                cancelAuth();
+                setCallbackUrlInput("");
+                setAuthMode("idle");
+              }}
+            >
+              {t("common.cancel", "取消")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 轮询中状态（设备码模式，非浏览器流程）*/}
       {isPolling && deviceCode && (
         <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/50">
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">

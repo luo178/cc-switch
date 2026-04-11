@@ -17,6 +17,8 @@ pub enum OAuthProviderId {
     GitHubCopilot,
     /// OpenAI
     OpenAI,
+    /// Anthropic (Claude)
+    Anthropic,
     /// Google Gemini
     GoogleGemini,
     /// 阿里巴巴通义千问
@@ -35,6 +37,7 @@ impl OAuthProviderId {
         match self {
             OAuthProviderId::GitHubCopilot => "GitHub Copilot",
             OAuthProviderId::OpenAI => "OpenAI",
+            OAuthProviderId::Anthropic => "Anthropic (Claude)",
             OAuthProviderId::GoogleGemini => "Google Gemini",
             OAuthProviderId::AlibabaQwen => "通义千问",
             OAuthProviderId::MoonshotKimi => "Moonshot Kimi",
@@ -48,6 +51,7 @@ impl OAuthProviderId {
         match self {
             OAuthProviderId::GitHubCopilot => "oauth_github_copilot.json".to_string(),
             OAuthProviderId::OpenAI => "oauth_openai.json".to_string(),
+            OAuthProviderId::Anthropic => "oauth_anthropic.json".to_string(),
             OAuthProviderId::GoogleGemini => "oauth_google_gemini.json".to_string(),
             OAuthProviderId::AlibabaQwen => "oauth_alibaba_qwen.json".to_string(),
             OAuthProviderId::MoonshotKimi => "oauth_moonshot.json".to_string(),
@@ -61,6 +65,7 @@ impl OAuthProviderId {
         match self {
             OAuthProviderId::GitHubCopilot => Some("https://api.githubcopilot.com"),
             OAuthProviderId::OpenAI => Some("https://api.openai.com"),
+            OAuthProviderId::Anthropic => Some("https://api.anthropic.com"),
             OAuthProviderId::GoogleGemini => Some("https://generativelanguage.googleapis.com"),
             OAuthProviderId::AlibabaQwen => Some("https://dashscope.aliyuncs.com"),
             OAuthProviderId::MoonshotKimi => Some("https://api.moonshot.cn"),
@@ -74,6 +79,7 @@ impl OAuthProviderId {
         match self {
             OAuthProviderId::GitHubCopilot => "github_copilot",
             OAuthProviderId::OpenAI => "openai",
+            OAuthProviderId::Anthropic => "anthropic",
             OAuthProviderId::GoogleGemini => "google_gemini",
             OAuthProviderId::AlibabaQwen => "alibaba_qwen",
             OAuthProviderId::MoonshotKimi => "moonshot_kimi",
@@ -87,6 +93,7 @@ impl OAuthProviderId {
         &[
             OAuthProviderId::GitHubCopilot,
             OAuthProviderId::OpenAI,
+            OAuthProviderId::Anthropic,
             OAuthProviderId::GoogleGemini,
             OAuthProviderId::AlibabaQwen,
             OAuthProviderId::MoonshotKimi,
@@ -130,6 +137,7 @@ impl std::str::FromStr for OAuthProviderId {
         match s.to_lowercase().as_str() {
             "github_copilot" => Ok(OAuthProviderId::GitHubCopilot),
             "openai" => Ok(OAuthProviderId::OpenAI),
+            "anthropic" | "claude" => Ok(OAuthProviderId::Anthropic),
             "google_gemini" => Ok(OAuthProviderId::GoogleGemini),
             "alibaba_qwen" | "qwen" => Ok(OAuthProviderId::AlibabaQwen),
             "moonshot_kimi" | "moonshot" | "kimi" => Ok(OAuthProviderId::MoonshotKimi),
@@ -211,13 +219,14 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = OAuthProviderId::all();
-        assert_eq!(all.len(), 7);
+        assert_eq!(all.len(), 8);
     }
 
     #[test]
     fn test_requires_token_exchange() {
         assert!(OAuthProviderId::GitHubCopilot.requires_token_exchange());
         assert!(!OAuthProviderId::OpenAI.requires_token_exchange());
+        assert!(!OAuthProviderId::Anthropic.requires_token_exchange());
         assert!(!OAuthProviderId::GoogleGemini.requires_token_exchange());
     }
 }

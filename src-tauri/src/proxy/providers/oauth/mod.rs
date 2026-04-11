@@ -16,7 +16,9 @@
 //! - `provider`: OAuth 类型定义
 //! - `storage`: 通用账号存储管理
 //! - `manager`: OAuth 管理器
+//! - `browser_flow`: 基于浏览器的 OAuth 流程（Authorization Code + PKCE）
 
+mod browser_flow;
 mod manager;
 pub mod provider;
 mod provider_id;
@@ -32,6 +34,7 @@ pub(crate) mod openai;
 pub(crate) mod volcengine;
 
 // 核心组件
+pub use browser_flow::BrowserFlowResponse;
 pub use manager::{OAuthAccountInfo, OAuthAuthStatus, OAuthDeviceCodeResponse, OAuthManager};
 pub use provider::OAuthError;
 pub use provider_id::OAuthProviderId;

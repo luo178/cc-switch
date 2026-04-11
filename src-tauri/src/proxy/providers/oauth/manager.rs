@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
+use crate::proxy::providers::oauth::browser_flow::{BrowserFlowResponse, OAuthBrowserFlow};
 use crate::proxy::providers::oauth::provider::{DeviceCodeResponse, OAuthError, OAuthUserInfo, TokenResponse};
 use crate::proxy::providers::oauth::provider_id::OAuthProviderId;
 use crate::proxy::providers::oauth::storage::{OAuthAccount, OAuthStorage};
@@ -151,6 +152,8 @@ pub struct OAuthManager {
     http_client: reqwest::Client,
     /// Copilot 专用认证管理器（复用已有实现）
     copilot_auth: Option<Arc<CopilotAuthManager>>,
+    /// 浏览器流程管理器
+    browser_flow: OAuthBrowserFlow,
 }
 
 impl OAuthManager {
@@ -158,9 +161,10 @@ impl OAuthManager {
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             storages: Arc::new(RwLock::new(HashMap::new())),
-            data_dir,
+            data_dir: data_dir.clone(),
             http_client: reqwest::Client::new(),
             copilot_auth: None,
+            browser_flow: OAuthBrowserFlow::new(data_dir),
         }
     }
 
@@ -168,9 +172,10 @@ impl OAuthManager {
     pub fn new_with_copilot(data_dir: PathBuf, copilot_auth: CopilotAuthManager) -> Self {
         Self {
             storages: Arc::new(RwLock::new(HashMap::new())),
-            data_dir,
+            data_dir: data_dir.clone(),
             http_client: reqwest::Client::new(),
             copilot_auth: Some(Arc::new(copilot_auth)),
+            browser_flow: OAuthBrowserFlow::new(data_dir),
         }
     }
 
@@ -326,6 +331,14 @@ impl OAuthManager {
                     "profile".to_string(),
                     "https://www.googleapis.com/auth/generative-language.retriever".to_string(),
                 ],
+            },
+            // Anthropic (Claude) - 设备码流程
+            OAuthProviderId::Anthropic => ProviderOAuthConfig {
+                client_id: String::new(), // 需要配置
+                device_code_url: "https://auth.anthropic.com/oauth/device/code".to_string(),
+                token_url: "https://auth.anthropic.com/oauth/token".to_string(),
+                user_info_url: Some("https://api.anthropic.com/v1/users/me".to_string()),
+                scopes: vec!["read:users".to_string(), "write:users".to_string()],
             },
             OAuthProviderId::AlibabaQwen => ProviderOAuthConfig {
                 client_id: fallback(ALIBABA_QWEN_CLIENT_ID),
@@ -540,6 +553,51 @@ impl OAuthManager {
         log::info!("[OAuthManager] Account added for {}: {}", provider_id.display_name(), user_info.login);
 
         Ok(Some(account_info))
+    }
+
+    // ==================== OAuth 浏览器流程（Authorization Code + PKCE）====================
+
+    /// 启动 OAuth 浏览器流程（自动打开浏览器）
+    pub async fn start_browser_flow(&self, provider_id: OAuthProviderId) -> Result<BrowserFlowResponse, String> {
+        self.browser_flow.start_browser_flow(provider_id).await
+    }
+
+    /// 完成 OAuth 浏览器流程（等待回调）
+    pub async fn complete_browser_flow(&self, provider_id: OAuthProviderId) -> Result<Option<OAuthAccountInfo>, OAuthError> {
+        let account_info = self.browser_flow.complete_browser_flow(provider_id).await?;
+
+        Ok(account_info.map(|info| OAuthAccountInfo {
+            id: info.id,
+            provider: info.provider,
+            login: info.login,
+            email: info.email,
+            avatar_url: info.avatar_url,
+            authenticated_at: info.authenticated_at,
+            is_default: info.is_default,
+        }))
+    }
+
+    /// 取消 OAuth 浏览器流程
+    pub async fn cancel_browser_flow(&self, provider_id: OAuthProviderId) {
+        self.browser_flow.cancel_flow(provider_id).await;
+    }
+
+    /// Headless 模式：使用回调 URL 完成认证
+    pub async fn complete_browser_flow_with_url(
+        &self,
+        provider_id: OAuthProviderId,
+        callback_url: &str,
+    ) -> Result<Option<OAuthAccountInfo>, OAuthError> {
+        let account_info = self.browser_flow.complete_browser_flow_with_url(provider_id, callback_url).await?;
+        Ok(account_info.map(|info| OAuthAccountInfo {
+            id: info.id,
+            provider: info.provider,
+            login: info.login,
+            email: info.email,
+            avatar_url: info.avatar_url,
+            authenticated_at: info.authenticated_at,
+            is_default: info.is_default,
+        }))
     }
 }
 

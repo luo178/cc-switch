@@ -1092,6 +1092,11 @@ pub fn run() {
             commands::auth_save_client_id,
             commands::auth_remove_client_id,
             commands::auth_list_client_ids,
+            // OAuth 浏览器流程（自动打开浏览器）
+            commands::auth_start_browser_flow,
+            commands::auth_complete_browser_flow,
+            commands::auth_complete_with_callback_url,
+            commands::auth_cancel_browser_flow,
             // Copilot OAuth commands (multi-account support)
             commands::copilot_start_device_flow,
             commands::copilot_poll_for_auth,
