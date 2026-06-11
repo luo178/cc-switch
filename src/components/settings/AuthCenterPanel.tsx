@@ -1,9 +1,61 @@
-import { Github, ShieldCheck } from "lucide-react";
+import { Github, ShieldCheck, Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
-import { CodexIcon } from "@/components/BrandIcons";
 import { CopilotAuthSection } from "@/components/providers/forms/CopilotAuthSection";
-import { CodexOAuthSection } from "@/components/providers/forms/CodexOAuthSection";
+import { OAuthProviderSection } from "@/components/settings/OAuthProviderSection";
+import type { OAuthProviderId } from "@/lib/api";
+
+// OAuth 提供商配置
+const OAUTH_PROVIDERS: { id: OAuthProviderId; name: string; icon: React.ReactNode; description?: string }[] = [
+  {
+    id: "github_copilot",
+    name: "GitHub Copilot",
+    icon: <Github className="h-5 w-5" />,
+    description: "管理 GitHub Copilot 账号",
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    icon: <Bot className="h-5 w-5" />,
+    description: "OpenAI API OAuth 认证",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic (Claude)",
+    icon: <Bot className="h-5 w-5" />,
+    description: "Anthropic Claude API OAuth 认证",
+  },
+  {
+    id: "google_gemini",
+    name: "Google Gemini",
+    icon: <Bot className="h-5 w-5" />,
+    description: "Google Gemini API OAuth 认证",
+  },
+  {
+    id: "alibaba_qwen",
+    name: "通义千问",
+    icon: <Bot className="h-5 w-5" />,
+    description: "阿里云通义千问 OAuth 认证",
+  },
+  {
+    id: "moonshot_kimi",
+    name: "Moonshot Kimi",
+    icon: <Bot className="h-5 w-5" />,
+    description: "Moonshot AI Kimi OAuth 认证",
+  },
+  {
+    id: "minimax",
+    name: "MiniMax",
+    icon: <Bot className="h-5 w-5" />,
+    description: "MiniMax API OAuth 认证",
+  },
+  {
+    id: "volcengine_ark",
+    name: "火山引擎 Ark",
+    icon: <Bot className="h-5 w-5" />,
+    description: "字节火山引擎 Ark OAuth 认证",
+  },
+];
 
 export function AuthCenterPanel() {
   const { t } = useTranslation();
@@ -24,7 +76,7 @@ export function AuthCenterPanel() {
             <p className="text-sm text-muted-foreground">
               {t("settings.authCenter.description", {
                 defaultValue:
-                  "在 Claude Code 中使用您的其他订阅，请注意合规风险。",
+                  "集中管理跨应用复用的 OAuth 账号。Provider 只绑定这些认证源，不再重复登录。",
               })}
             </p>
           </div>
@@ -34,6 +86,7 @@ export function AuthCenterPanel() {
         </div>
       </section>
 
+      {/* GitHub Copilot 单独展示 */}
       <section className="rounded-xl border border-border/60 bg-card/60 p-6">
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
@@ -43,7 +96,8 @@ export function AuthCenterPanel() {
             <h4 className="font-medium">GitHub Copilot</h4>
             <p className="text-sm text-muted-foreground">
               {t("settings.authCenter.copilotDescription", {
-                defaultValue: "管理 GitHub Copilot 账号",
+                defaultValue:
+                  "管理 GitHub Copilot 账号、默认账号以及供 Claude / Codex / Gemini 绑定的托管凭据。",
               })}
             </p>
           </div>
@@ -52,23 +106,26 @@ export function AuthCenterPanel() {
         <CopilotAuthSection />
       </section>
 
-      <section className="rounded-xl border border-border/60 bg-card/60 p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-            <CodexIcon size={20} />
+      {/* 其他 OAuth 提供商 */}
+      {OAUTH_PROVIDERS.filter(p => p.id !== "github_copilot").map((provider) => (
+        <section key={provider.id} className="rounded-xl border border-border/60 bg-card/60 p-6">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
+              {provider.icon}
+            </div>
+            <div>
+              <h4 className="font-medium">{provider.name}</h4>
+              {provider.description && (
+                <p className="text-sm text-muted-foreground">
+                  {provider.description}
+                </p>
+              )}
+            </div>
           </div>
-          <div>
-            <h4 className="font-medium">ChatGPT (Codex OAuth)</h4>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.authCenter.codexOauthDescription", {
-                defaultValue: "管理 ChatGPT 账号",
-              })}
-            </p>
-          </div>
-        </div>
 
-        <CodexOAuthSection />
-      </section>
+          <OAuthProviderSection providerId={provider.id} />
+        </section>
+      ))}
     </div>
   );
 }

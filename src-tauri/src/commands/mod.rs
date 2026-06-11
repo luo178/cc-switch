@@ -3,6 +3,7 @@
 mod auth;
 mod balance;
 mod codex_oauth;
+pub mod oauth;
 mod coding_plan;
 mod config;
 mod copilot;

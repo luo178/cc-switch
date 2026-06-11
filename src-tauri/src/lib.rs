@@ -931,6 +931,21 @@ pub fn run() {
                 log::info!("✓ CodexOAuthManager initialized");
             }
 
+            // 初始化 OAuthManager（多厂商 OAuth 框架：OpenAI / Anthropic / Gemini / Kimi / MiniMax / Volcengine 等）
+            {
+                use crate::proxy::providers::copilot_auth::CopilotAuthManager;
+                use crate::proxy::providers::oauth::OAuthManager;
+                use commands::oauth::OAuthManagerState;
+                use tokio::sync::RwLock;
+
+                let app_config_dir = crate::config::get_app_config_dir();
+                let copilot_auth_manager = CopilotAuthManager::new(app_config_dir.clone());
+                let oauth_manager =
+                    OAuthManager::new_with_copilot(app_config_dir, copilot_auth_manager);
+                app.manage(OAuthManagerState(Arc::new(RwLock::new(oauth_manager))));
+                log::info!("✓ OAuthManager initialized");
+            }
+
             // 初始化全局出站代理 HTTP 客户端
             {
                 let db = &app.state::<AppState>().db;
@@ -1397,6 +1412,15 @@ pub fn run() {
             commands::auth_remove_account,
             commands::auth_set_default_account,
             commands::auth_logout,
+            // Multi-vendor OAuth manager commands
+            commands::oauth::auth_start_browser_flow,
+            commands::oauth::auth_complete_browser_flow,
+            commands::oauth::auth_complete_with_callback_url,
+            commands::oauth::auth_cancel_browser_flow,
+            commands::oauth::auth_list_providers,
+            commands::oauth::auth_save_client_id,
+            commands::oauth::auth_remove_client_id,
+            commands::oauth::auth_list_client_ids,
             // Copilot OAuth commands (multi-account support)
             commands::copilot_start_device_flow,
             commands::copilot_poll_for_auth,

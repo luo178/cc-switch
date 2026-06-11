@@ -1,27 +1,57 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type ManagedAuthProvider = "github_copilot" | "codex_oauth";
+/// OAuth 提供商 ID
+export type OAuthProviderId =
+  | "github_copilot"
+  | "codex_oauth"
+  | "openai"
+  | "anthropic"
+  | "google_gemini"
+  | "alibaba_qwen"
+  | "moonshot_kimi"
+  | "minimax"
+  | "volcengine_ark";
 
-export interface ManagedAuthAccount {
+/// OAuth 提供商信息
+export interface OAuthProviderInfo {
   id: string;
-  provider: ManagedAuthProvider;
-  login: string;
-  avatar_url: string | null;
-  authenticated_at: number;
-  is_default: boolean;
-  github_domain: string;
+  name: string;
+  supports_device_code: boolean;
+  requires_token_exchange: boolean;
 }
 
-export interface ManagedAuthStatus {
-  provider: ManagedAuthProvider;
+/// OAuth 账号信息
+export interface OAuthAccount {
+  id: string;
+  provider: OAuthProviderId;
+  login: string;
+  email?: string | null;
+  avatar_url?: string | null;
+  authenticated_at: number;
+  is_default: boolean;
+  /// GitHub 域名（仅 github_copilot 提供商使用，其他可选）
+  github_domain?: string;
+}
+
+/** 兼容 GitHubAccount：去除可选字段的 undefined */
+export type GitHubAccountLike = Omit<OAuthAccount, "github_domain" | "email" | "avatar_url"> & {
+  github_domain: string;
+  email?: string | null;
+  avatar_url: string | null;
+};
+
+/// OAuth 认证状态
+export interface OAuthAuthStatus {
+  provider: OAuthProviderId;
   authenticated: boolean;
   default_account_id: string | null;
   migration_error?: string | null;
-  accounts: ManagedAuthAccount[];
+  accounts: OAuthAccount[];
 }
 
-export interface ManagedAuthDeviceCodeResponse {
-  provider: ManagedAuthProvider;
+/// OAuth 设备码响应
+export interface OAuthDeviceCodeResponse {
+  provider: OAuthProviderId;
   device_code: string;
   user_code: string;
   verification_uri: string;
@@ -29,46 +59,113 @@ export interface ManagedAuthDeviceCodeResponse {
   interval: number;
 }
 
+/// OAuth 浏览器流程响应
+export interface OAuthBrowserFlowResponse {
+  provider: OAuthProviderId;
+  authorization_url: string;
+  redirect_uri: string;
+  state: string;
+  code_verifier: string;
+  auto_open_browser: boolean;
+}
+
+// ==================== API 函数 ====================
+
+/// 列出所有支持的 OAuth 提供商
+export async function authListProviders(): Promise<OAuthProviderInfo[]> {
+  return invoke<OAuthProviderInfo[]>("auth_list_providers");
+}
+
+/// 启动 OAuth 登录流程（设备码方式）
+///
+/// `githubDomain` 为可选参数，仅 `github_copilot` 提供商使用。
+/// 其他 provider 调用时不传。
 export async function authStartLogin(
-  authProvider: ManagedAuthProvider,
+  authProvider: OAuthProviderId,
   githubDomain?: string,
-): Promise<ManagedAuthDeviceCodeResponse> {
-  return invoke<ManagedAuthDeviceCodeResponse>("auth_start_login", {
+): Promise<OAuthDeviceCodeResponse> {
+  return invoke<OAuthDeviceCodeResponse>("auth_start_login", {
     authProvider,
-    githubDomain: githubDomain || null,
+    githubDomain,
   });
 }
 
+/// 启动 OAuth 浏览器流程（自动打开浏览器）
+export async function authStartBrowserFlow(
+  authProvider: OAuthProviderId,
+  autoOpenBrowser: boolean = true,
+): Promise<OAuthBrowserFlowResponse> {
+  return invoke<OAuthBrowserFlowResponse>("auth_start_browser_flow", {
+    authProvider,
+    autoOpenBrowser,
+  });
+}
+
+/// 完成 OAuth 浏览器流程（等待回调）
+export async function authCompleteBrowserFlow(
+  authProvider: OAuthProviderId,
+): Promise<OAuthAccount | null> {
+  return invoke<OAuthAccount | null>("auth_complete_browser_flow", {
+    authProvider,
+  });
+}
+
+/// 完成 OAuth 浏览器流程（Headless 模式 - 用户粘贴回调 URL）
+export async function authCompleteWithCallbackUrl(
+  authProvider: OAuthProviderId,
+  callbackUrl: string,
+): Promise<OAuthAccount | null> {
+  return invoke<OAuthAccount | null>("auth_complete_with_callback_url", {
+    authProvider,
+    callbackUrl,
+  });
+}
+
+/// 取消 OAuth 浏览器流程
+export async function authCancelBrowserFlow(
+  authProvider: OAuthProviderId,
+): Promise<void> {
+  return invoke<void>("auth_cancel_browser_flow", {
+    authProvider,
+  });
+}
+
+/// 轮询检查账号是否授权完成
+///
+/// `githubDomain` 为可选参数，仅 `github_copilot` 提供商使用。
 export async function authPollForAccount(
-  authProvider: ManagedAuthProvider,
+  authProvider: OAuthProviderId,
   deviceCode: string,
   githubDomain?: string,
-): Promise<ManagedAuthAccount | null> {
-  return invoke<ManagedAuthAccount | null>("auth_poll_for_account", {
+): Promise<OAuthAccount | null> {
+  return invoke<OAuthAccount | null>("auth_poll_for_account", {
     authProvider,
     deviceCode,
-    githubDomain: githubDomain || null,
+    githubDomain,
   });
 }
 
+/// 列出所有已认证的账号
 export async function authListAccounts(
-  authProvider: ManagedAuthProvider,
-): Promise<ManagedAuthAccount[]> {
-  return invoke<ManagedAuthAccount[]>("auth_list_accounts", {
+  authProvider: OAuthProviderId,
+): Promise<OAuthAccount[]> {
+  return invoke<OAuthAccount[]>("auth_list_accounts", {
     authProvider,
   });
 }
 
+/// 获取 OAuth 认证状态
 export async function authGetStatus(
-  authProvider: ManagedAuthProvider,
-): Promise<ManagedAuthStatus> {
-  return invoke<ManagedAuthStatus>("auth_get_status", {
+  authProvider: OAuthProviderId,
+): Promise<OAuthAuthStatus> {
+  return invoke<OAuthAuthStatus>("auth_get_status", {
     authProvider,
   });
 }
 
+/// 移除指定账号
 export async function authRemoveAccount(
-  authProvider: ManagedAuthProvider,
+  authProvider: OAuthProviderId,
   accountId: string,
 ): Promise<void> {
   return invoke("auth_remove_account", {
@@ -77,8 +174,9 @@ export async function authRemoveAccount(
   });
 }
 
+/// 设置默认账号
 export async function authSetDefaultAccount(
-  authProvider: ManagedAuthProvider,
+  authProvider: OAuthProviderId,
   accountId: string,
 ): Promise<void> {
   return invoke("auth_set_default_account", {
@@ -87,15 +185,47 @@ export async function authSetDefaultAccount(
   });
 }
 
+/// 登出（清除所有账号）
 export async function authLogout(
-  authProvider: ManagedAuthProvider,
+  authProvider: OAuthProviderId,
 ): Promise<void> {
   return invoke("auth_logout", {
     authProvider,
   });
 }
 
+/// 保存 OAuth Client ID
+export async function authSaveClientId(
+  providerId: string,
+  clientId: string,
+): Promise<void> {
+  return invoke("auth_save_client_id", {
+    providerId,
+    clientId,
+  });
+}
+
+/// 移除 OAuth Client ID
+export async function authRemoveClientId(providerId: string): Promise<void> {
+  return invoke("auth_remove_client_id", {
+    providerId,
+  });
+}
+
+/// 获取所有已配置的 Client ID
+export async function authListClientIds(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("auth_list_client_ids");
+}
+
+/// 兼容性别名
+export type ManagedAuthProvider = OAuthProviderId;
+export type ManagedAuthAccount = OAuthAccount;
+export type ManagedAuthStatus = OAuthAuthStatus;
+export type ManagedAuthDeviceCodeResponse = OAuthDeviceCodeResponse;
+
+/// 兼容旧版 API
 export const authApi = {
+  authListProviders,
   authStartLogin,
   authPollForAccount,
   authListAccounts,
@@ -103,4 +233,7 @@ export const authApi = {
   authRemoveAccount,
   authSetDefaultAccount,
   authLogout,
+  authSaveClientId,
+  authRemoveClientId,
+  authListClientIds,
 };

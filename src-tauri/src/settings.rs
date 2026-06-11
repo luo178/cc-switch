@@ -410,6 +410,11 @@ pub struct AppSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_provider_hermes: Option<String>,
 
+    /// OAuth 客户端 ID 映射（provider_id -> client_id）
+    /// 用于用户覆盖 dev/v1 硬编码的 OAuth Client ID 占位符
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub oauth_client_ids: std::collections::HashMap<String, String>,
+
     // ===== Skill 同步设置 =====
     /// Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
     #[serde(default)]
@@ -493,6 +498,7 @@ impl Default for AppSettings {
             current_provider_opencode: None,
             current_provider_openclaw: None,
             current_provider_hermes: None,
+            oauth_client_ids: std::collections::HashMap::new(),
             skill_sync_method: SyncMethod::default(),
             skill_storage_location: SkillStorageLocation::default(),
             webdav_sync: None,
@@ -1015,6 +1021,32 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
             s3.status = status;
         }
     })
+}
+
+/// 获取指定 OAuth provider 的 Client ID（如果已配置）
+pub fn get_oauth_client_id(provider_id: &str) -> Option<String> {
+    get_settings().oauth_client_ids.get(provider_id).cloned()
+}
+
+/// 设置指定 OAuth provider 的 Client ID
+pub fn set_oauth_client_id(provider_id: &str, client_id: String) -> Result<(), AppError> {
+    mutate_settings(|current| {
+        current
+            .oauth_client_ids
+            .insert(provider_id.to_string(), client_id);
+    })
+}
+
+/// 移除指定 OAuth provider 的 Client ID
+pub fn remove_oauth_client_id(provider_id: &str) -> Result<(), AppError> {
+    mutate_settings(|current| {
+        current.oauth_client_ids.remove(provider_id);
+    })
+}
+
+/// 列出所有已配置的 OAuth Client ID
+pub fn list_oauth_client_ids() -> std::collections::HashMap<String, String> {
+    get_settings().oauth_client_ids
 }
 
 #[cfg(test)]
